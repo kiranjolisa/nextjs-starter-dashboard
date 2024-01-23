@@ -15,29 +15,52 @@ const FormSchema = z.object({
 
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
 
-export async function createInvoice(formData: FormData) {
+export type State = {
+    errors?: {
+      customerId?: string[];
+      amount?: string[];
+      status?: string[];
+    };
+    message?: string | null;
+  };
+
+export async function createInvoice(prevState: State, formData: FormData) {
     console.log(formData)
+    const validatedFields = CreateInvoice.safeParse({
+        customerId: formData.get('customerId'),
+        amount: formData.get('amount'),
+        status: formData.get('status'),
+    });
+
+    // If form validation fails, return errors early. Otherwise, continue.
+    if (!validatedFields.success) {
+        return {
+        errors: validatedFields.error.flatten().fieldErrors,
+        message: 'Missing Fields. Failed to Create Invoice.',
+        };
+    }
+
+    // Prepare data for insertion into the database
+    const { customerId, amount, status } = validatedFields.data;
+    const amountInCents = amount * 100;
+    const date = new Date().toISOString().split('T')[0];
+    
+      
+    // Insert data into the database
     try {
-        const { customerId, amount, status } = CreateInvoice.parse({
-            customerId: formData.get('customerId'),
-            amount: formData.get('amount'),
-            status: formData.get('status'),
-        });
-    
-        const amountInCents = amount * 100;
-        const date = new Date().toISOString().split('T')[0];
-    
         await sql`
         INSERT INTO invoices (customer_id, amount, status, date)
         VALUES (${customerId}, ${amountInCents}, ${status}, ${date})
-      `;
+        `;
+    } catch (error) {
+        // If a database error occurs, return a more specific error.
+        return {
+        message: 'Database Error: Failed to Create Invoice.',
+        };
+    }
     
       revalidatePath('/dashboard/invoices');
       redirect('/dashboard/invoices');
-    }
-    catch(e) {
-        console.log(e)
-    }
 }
 
 // Use Zod to update the expected types
@@ -68,7 +91,6 @@ export async function updateInvoice(id: string, formData: FormData) {
 }
 
 export async function deleteInvoice(id: string) {
-    throw new Error('Failed to Delete Invoice');
     try {
         await sql`DELETE FROM invoices WHERE id = ${id}`;
         revalidatePath('/dashboard/invoices');
